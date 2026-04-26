@@ -1,0 +1,55 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String
+  role      String   @default("viewer") // admin, editor, viewer
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Monitor {
+  id          String       @id @default(cuid())
+  name        String
+  url         String       @unique
+  interval    Int          @default(5) // minutes
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  checkResults CheckResult[]
+  incidents   Incident[]
+}
+
+model CheckResult {
+  id          String   @id @default(cuid())
+  monitorId   String
+  status      String   // up, down, degraded
+  statusCode  Int?
+  responseTime Int     // milliseconds
+  timestamp   DateTime @default(now())
+  error       String?
+  monitor     Monitor  @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+
+  @@index([monitorId, timestamp])
+}
+
+model Incident {
+  id          String   @id @default(cuid())
+  monitorId   String
+  title       String
+  description String?
+  severity    String   // critical, warning, info
+  status      String   @default("open") // open, investigating, resolved
+  createdAt   DateTime @default(now())
+  resolvedAt  DateTime?
+  monitor     Monitor  @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+}
