@@ -6,8 +6,13 @@ import { getAuthUser } from '@/lib/auth';
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await getAuthUser(req.headers.get('authorization') || undefined);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const orgId = (user as any).orgId;
   const monitor = await prisma.monitor.findUnique({ where: { id: params.id } });
-  if (!monitor) return NextResponse.json({ error: 'Monitor not found' }, { status: 404 });
+  if (!monitor || monitor.orgId !== orgId) {
+    return NextResponse.json({ error: 'Monitor not found' }, { status: 404 });
+  }
+
   const result = await testMonitor(monitor);
   return NextResponse.json(result);
 }

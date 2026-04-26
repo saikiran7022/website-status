@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -7,6 +7,7 @@ import { StatCard } from "@/components/dashboard/stat-card";
 import { UptimeTimeline } from "@/components/charts/uptime-timeline";
 import { Activity, CheckCircle, AlertCircle, Clock, Plus } from "lucide-react";
 import { prisma } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth/session";
 
 function getStatusColor(status: string) {
   switch (status) {
@@ -26,8 +27,9 @@ function getBadgeVariant(status: string) {
   }
 }
 
-async function getDashboardData() {
+async function getDashboardData(orgId: string) {
   const monitors = await prisma.monitor.findMany({
+    where: { orgId },
     include: {
       checkResults: {
         orderBy: { timestamp: 'desc' },
@@ -41,7 +43,6 @@ async function getDashboardData() {
     orderBy: { createdAt: 'desc' },
   });
 
-  // Calculate stats for each monitor
   const now = new Date();
   const since24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
@@ -56,7 +57,6 @@ async function getDashboardData() {
       const uptime = checks.length > 0 ? (upCount / checks.length) * 100 : 100;
       const lastCheck = checks[0];
 
-      // 90-day timeline
       const timelineDays: { date: Date; status: 'up' | 'down' | 'partial' | 'none' }[] = [];
       for (let i = 89; i >= 0; i--) {
         const d = new Date(now);
@@ -92,11 +92,15 @@ async function getDashboardData() {
 }
 
 export default async function DashboardPage() {
+  const user = await getCurrentUser();
+  if (!user) redirect('/login');
+
+  const orgId = (user as any).orgId;
   let monitors: Awaited<ReturnType<typeof getDashboardData>> = [];
   try {
-    monitors = await getDashboardData();
+    monitors = await getDashboardData(orgId);
   } catch {
-    // Empty state on first load before DB is set up
+    // Empty state on first load
   }
 
   const upCount = monitors.filter((m) => m.lastStatus === "up").length;

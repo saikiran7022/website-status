@@ -6,7 +6,10 @@ export async function GET(req: NextRequest) {
   const user = await getAuthUser(req.headers.get('authorization') || undefined);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const monitors = await prisma.monitor.findMany();
+  const orgId = (user as any).orgId;
+  const monitors = await prisma.monitor.findMany({
+    where: { orgId },
+  });
   const stats: Record<string, any> = {};
 
   for (const m of monitors) {

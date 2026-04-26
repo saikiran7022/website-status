@@ -7,7 +7,9 @@
     "build": "prisma generate && next build",
     "start": "next start -p $PORT",
     "postinstall": "prisma generate",
+    "db:push": "prisma db push",
     "db:migrate": "prisma migrate deploy",
+    "seed": "tsx src/lib/seed.ts",
     "test": "jest --passWithNoTests",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage"
@@ -34,7 +36,8 @@
     "react-dom": "^18.3.1",
     "recharts": "^2.12.7",
     "sonner": "^1.5.0",
-    "tailwind-merge": "^2.4.0"
+    "tailwind-merge": "^2.4.0",
+    "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.4.0",

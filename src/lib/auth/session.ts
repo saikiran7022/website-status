@@ -1,23 +1,36 @@
+import { cookies } from 'next/headers';
 import { prisma } from '@/lib/db';
+import { verifyToken } from '@/lib/auth';
 
-export async function createSession(userId: string) {
-  // Sessions are handled via JWT cookies in this implementation
-  return { userId };
+export async function getCurrentUser() {
+  const cookieStore = await cookies();
+  const token = cookieStore.get('ws_session');
+  if (!token) return null;
+
+  const payload = verifyToken(token.value);
+  if (!payload) return null;
+
+  const user = await prisma.user.findUnique({
+    where: { id: payload.userId },
+    include: { org: true },
+  });
+
+  if (!user) return null;
+  return { ...user, role: payload.role, orgId: payload.orgId };
 }
 
-export async function getSession(sessionId: string) {
-  // Not used - JWT is stored in cookies
+export function getSession(_sessionId: string) {
   return null;
 }
 
-export async function deleteSession(sessionId: string) {
+export function invalidateSession(_sessionId: string) {
   return;
 }
 
-export async function invalidateSession(sessionId: string) {
+export function deleteSession(_sessionId: string) {
   return;
 }
 
-export async function getCurrentUser(token: string | undefined) {
-  return null;
+export function createSession(_userId: string) {
+  return {};
 }

@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 
 export function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 12);
@@ -32,7 +33,22 @@ export function generateAPIKey(): string {
   return `ws_${Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')}`;
 }
 
-export function signToken(userId: string, role: string): string {
-  const jwt = require('jsonwebtoken');
-  return jwt.sign({ userId, role }, process.env.JWT_SECRET || 'change-me', { expiresIn: '7d' });
+export interface TokenPayload {
+  userId: string;
+  role: string;
+  orgId?: string;
+}
+
+export function signToken(userId: string, role: string, orgId?: string): string {
+  const payload: TokenPayload = { userId, role };
+  if (orgId) payload.orgId = orgId;
+  return jwt.sign(payload, process.env.JWT_SECRET || 'change-me', { expiresIn: '7d' });
+}
+
+export function verifyToken(token: string): TokenPayload | null {
+  try {
+    return jwt.verify(token, process.env.JWT_SECRET || 'change-me') as TokenPayload;
+  } catch {
+    return null;
+  }
 }

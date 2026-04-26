@@ -36,12 +36,16 @@ export default function NewMonitorPage() {
       const res = await fetch("/api/monitors", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...formData, headers: headersObj }),
+        body: JSON.stringify({
+          name: formData.name,
+          url: formData.url,
+          interval: Math.floor(formData.interval / 60), // convert seconds to minutes for DB
+        }),
       });
       const data = await res.json();
-      if (data.monitor) {
+      if (res.ok && data.id) {
         toast.success("Monitor created successfully");
-        router.push(`/dashboard/monitors/${data.monitor.id}`);
+        router.push(`/dashboard/monitors/${data.id}`);
       } else {
         toast.error(data.error || "Failed to create monitor");
       }

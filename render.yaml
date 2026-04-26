@@ -2,8 +2,10 @@ services:
   - type: web
     name: website-status
     env: node
-    buildCommand: npm install && npx prisma migrate deploy && npm run build
-    startCommand: npm start
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npx prisma migrate deploy && npm start
+    healthCheckPath: /
     envVars:
       - key: NODE_ENV
         value: production
@@ -16,4 +18,5 @@ services:
 
 databases:
   - name: website-status-db
+    plan: free
     databaseName: website_status
