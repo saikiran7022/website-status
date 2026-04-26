@@ -1,6 +1,4 @@
 import bcrypt from "bcryptjs";
-import { encodeBase32LowerCaseNoPadding, encodeHexLowerCase } from "@oslojs/encoding";
-import { sha256 } from "@oslojs/crypto/sha2";
 
 export function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 12);
@@ -13,22 +11,28 @@ export function verifyPassword(password: string, hash: string): Promise<boolean>
 export function generateSessionToken(): string {
   const bytes = new Uint8Array(20);
   crypto.getRandomValues(bytes);
-  const token = encodeBase32LowerCaseNoPadding(bytes);
-  return token;
+  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 }
 
 export function createSessionTokenHash(token: string): string {
-  return encodeHexLowerCase(sha256(new TextEncoder().encode(token)));
+  const hash = new Uint8Array(32);
+  crypto.getRandomValues(hash);
+  return Array.from(hash, b => b.toString(16).padStart(2, '0')).join('');
 }
 
 export function generateVerificationToken(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
-  return encodeHexLowerCase(bytes);
+  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 }
 
 export function generateAPIKey(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
-  return `ws_${encodeHexLowerCase(bytes)}`;
+  return `ws_${Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')}`;
+}
+
+export function signToken(userId: string, role: string): string {
+  const jwt = require('jsonwebtoken');
+  return jwt.sign({ userId, role }, process.env.JWT_SECRET || 'change-me', { expiresIn: '7d' });
 }

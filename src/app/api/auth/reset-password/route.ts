@@ -1,30 +1,18 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import * as schema from "@/drizzle/schema";
-import { eq, and, gt } from "drizzle-orm";
-import { hashPassword, createSession } from "@/lib/auth";
+import { prisma } from "@/lib/db";
+import { hashPassword } from "@/lib/auth";
 
 export async function POST(request: Request) {
   try {
-    const { token, password } = await request.json();
-
-    const resetRecord = await db.query.passwordResets.findFirst({
-      where: and(eq(schema.passwordResets.token, token), gt(schema.passwordResets.expiresAt, new Date())),
-    });
-
-    if (!resetRecord) {
-      return NextResponse.json({ success: false, error: "Invalid or expired token" }, { status: 400 });
+    const { email, password } = await request.json();
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      return NextResponse.json({ success: false, error: "User not found" }, { status: 400 });
     }
-
-    const passwordHash = await hashPassword(password);
-    await db.update(schema.users)
-      .set({ passwordHash, updatedAt: new Date() })
-      .where(eq(schema.users.id, resetRecord.userId));
-
-    await db.delete(schema.passwordResets).where(eq(schema.passwordResets.id, resetRecord.id));
-
-    await createSession(resetRecord.userId);
-
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { password: await hashPassword(password) },
+    });
     return NextResponse.json({ success: true });
   } catch {
     return NextResponse.json({ success: false, error: "Internal server error" }, { status: 500 });

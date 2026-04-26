@@ -22,6 +22,10 @@ async function checkUrl(url: string): Promise<{ status: string; statusCode: numb
   }
 }
 
+export async function testMonitor(monitor: { id: string; url: string; timeout?: number | null }) {
+  return checkUrl(monitor.url);
+}
+
 export async function runAllChecks() {
   const monitors = await prisma.monitor.findMany({ where: { isActive: true } });
   console.log(`[checker] Running ${monitors.length} checks...`);

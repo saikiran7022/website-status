@@ -1,31 +1,110 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { UptimeTimeline } from "@/components/charts/uptime-timeline";
 import { Activity, CheckCircle, AlertCircle, Clock, Plus } from "lucide-react";
-import { formatUptime, formatResponseTime, getStatusBg, formatDate } from "@/lib/utils";
+import { prisma } from "@/lib/db";
 
-// Mock data - in production, fetch from database
-const mockMonitors = [
-  { id: "1", name: "Production API", url: "https://api.example.com", status: "up" as const, uptime: 99.98, responseTime: 142, type: "https" },
-  { id: "2", name: "Main Website", url: "https://example.com", status: "up" as const, uptime: 99.95, responseTime: 230, type: "https" },
-  { id: "3", name: "Staging Server", url: "https://staging.example.com", status: "down" as const, uptime: 95.2, responseTime: null, type: "https" },
-  { id: "4", name: "CDN Endpoint", url: "https://cdn.example.com", status: "up" as const, uptime: 99.99, responseTime: 45, type: "https" },
-  { id: "5", name: "Database TCP", url: "db.example.com:5432", status: "up" as const, uptime: 99.97, responseTime: 12, type: "tcp" },
-  { id: "6", name: "DNS Resolution", url: "example.com", status: "degraded" as const, uptime: 98.5, responseTime: 350, type: "dns" },
-];
+function getStatusColor(status: string) {
+  switch (status) {
+    case 'up': return 'bg-emerald-500';
+    case 'down': return 'bg-red-500';
+    case 'degraded': return 'bg-amber-500';
+    default: return 'bg-gray-400';
+  }
+}
 
-const mockTimelineData = Array.from({ length: 90 }, (_, i) => ({
-  date: new Date(Date.now() - (89 - i) * 86400000),
-  status: Math.random() > 0.05 ? ("up" as const) : ("down" as const),
-}));
+function getBadgeVariant(status: string) {
+  switch (status) {
+    case 'up': return 'default' as const;
+    case 'down': return 'destructive' as const;
+    case 'degraded': return 'secondary' as const;
+    default: return 'outline' as const;
+  }
+}
 
-export default function DashboardPage() {
-  const upCount = mockMonitors.filter((m) => m.status === "up").length;
-  const downCount = mockMonitors.filter((m) => m.status === "down").length;
-  const degradedCount = mockMonitors.filter((m) => m.status === "degraded").length;
+async function getDashboardData() {
+  const monitors = await prisma.monitor.findMany({
+    include: {
+      checkResults: {
+        orderBy: { timestamp: 'desc' },
+        take: 1,
+      },
+      incidents: {
+        where: { status: 'open' },
+        take: 5,
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  // Calculate stats for each monitor
+  const now = new Date();
+  const since24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+  const monitorsWithStats = await Promise.all(
+    monitors.map(async (m) => {
+      const checks = await prisma.checkResult.findMany({
+        where: { monitorId: m.id, timestamp: { gte: since24h } },
+        orderBy: { timestamp: 'desc' },
+      });
+      const upCount = checks.filter(c => c.status === 'up' || c.status === 'degraded').length;
+      const avgResp = checks.length > 0 ? Math.round(checks.reduce((s, c) => s + c.responseTime, 0) / checks.length) : 0;
+      const uptime = checks.length > 0 ? (upCount / checks.length) * 100 : 100;
+      const lastCheck = checks[0];
+
+      // 90-day timeline
+      const timelineDays: { date: Date; status: 'up' | 'down' | 'partial' | 'none' }[] = [];
+      for (let i = 89; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(d.getDate() - i);
+        d.setHours(0, 0, 0, 0);
+        const next = new Date(d);
+        next.setDate(next.getDate() + 1);
+        const dayChecks = await prisma.checkResult.findMany({
+          where: { monitorId: m.id, timestamp: { gte: d, lt: next } },
+        });
+        if (dayChecks.length === 0) {
+          timelineDays.push({ date: d, status: 'up' });
+        } else {
+          const dayUp = dayChecks.filter(c => c.status === 'up' || c.status === 'degraded' || c.status === 'partial').length;
+          const ratio = dayUp / dayChecks.length;
+          timelineDays.push({ date: d, status: ratio >= 0.95 ? 'up' : ratio >= 0.5 ? 'partial' : 'down' });
+        }
+      }
+
+      return {
+        ...m,
+        uptime,
+        avgResponseTime: avgResp,
+        lastStatus: lastCheck?.status || 'unknown',
+        lastCheckTime: lastCheck?.timestamp,
+        timelineDays,
+        incidents: m.incidents,
+      };
+    })
+  );
+
+  return monitorsWithStats;
+}
+
+export default async function DashboardPage() {
+  let monitors: Awaited<ReturnType<typeof getDashboardData>> = [];
+  try {
+    monitors = await getDashboardData();
+  } catch {
+    // Empty state on first load before DB is set up
+  }
+
+  const upCount = monitors.filter((m) => m.lastStatus === "up").length;
+  const downCount = monitors.filter((m) => m.lastStatus === "down").length;
+  const degradedCount = monitors.filter((m) => m.lastStatus === "degraded").length;
+  const avgResp = monitors.length > 0
+    ? Math.round(monitors.reduce((sum, m) => sum + m.avgResponseTime, 0) / monitors.length)
+    : 0;
 
   return (
     <div className="space-y-6">
@@ -41,10 +120,10 @@ export default function DashboardPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="Total Monitors" value={mockMonitors.length} icon={Activity} change="+2 this week" changeType="positive" />
-        <StatCard title="Monitors Up" value={upCount} icon={CheckCircle} change={`${formatUptime((upCount / mockMonitors.length) * 100)}`} changeType="positive" />
+        <StatCard title="Total Monitors" value={monitors.length} icon={Activity} change="Add more to get started" changeType="positive" />
+        <StatCard title="Monitors Up" value={upCount} icon={CheckCircle} change={monitors.length > 0 ? `${Math.round((upCount / monitors.length) * 100)}% healthy` : "No monitors yet"} changeType="positive" />
         <StatCard title="Monitors Down" value={downCount} icon={AlertCircle} change={downCount > 0 ? "Needs attention" : "All clear"} changeType={downCount > 0 ? "negative" : "positive"} />
-        <StatCard title="Avg Response" value="156ms" icon={Clock} change="-12ms from last week" changeType="positive" />
+        <StatCard title="Avg Response" value={`${avgResp}ms`} icon={Clock} change="Across all monitors" changeType="positive" />
       </div>
 
       {/* Monitor List */}
@@ -53,78 +132,85 @@ export default function DashboardPage() {
           <CardTitle>Monitors</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {mockMonitors.map((monitor) => (
-              <Link key={monitor.id} href={`/dashboard/monitors/${monitor.id}`}>
-                <div className="flex items-center gap-4 p-3 rounded-lg hover:bg-muted transition-colors cursor-pointer">
-                  <span className={cn("w-3 h-3 rounded-full flex-shrink-0", getStatusBg(monitor.status))} />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{monitor.name}</p>
-                    <p className="text-sm text-muted-foreground truncate">{monitor.url}</p>
-                  </div>
-                  <Badge variant={monitor.status === "up" ? "success" : monitor.status === "down" ? "destructive" : "warning"} className="hidden sm:inline-flex">
-                    {monitor.status}
-                  </Badge>
-                  <div className="text-right hidden sm:block">
-                    <p className="text-sm font-medium">{formatUptime(monitor.uptime)}</p>
-                    <p className="text-xs text-muted-foreground">{formatResponseTime(monitor.responseTime)}</p>
-                  </div>
-                </div>
+          {monitors.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <Activity className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p>No monitors configured yet.</p>
+              <Link href="/dashboard/monitors/new">
+                <Button variant="link" className="gap-2"><Plus className="w-4 h-4" /> Add your first monitor</Button>
               </Link>
-            ))}
-          </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {monitors.map((monitor) => (
+                <Link key={monitor.id} href={`/dashboard/monitors/${monitor.id}`}>
+                  <div className="flex items-center gap-4 p-3 rounded-lg hover:bg-muted transition-colors cursor-pointer">
+                    <span className={`w-3 h-3 rounded-full flex-shrink-0 ${getStatusColor(monitor.lastStatus)}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{monitor.name}</p>
+                      <p className="text-sm text-muted-foreground truncate">{monitor.url}</p>
+                    </div>
+                    <Badge variant={getBadgeVariant(monitor.lastStatus)} className="hidden sm:inline-flex capitalize">
+                      {monitor.lastStatus}
+                    </Badge>
+                    <div className="text-right hidden sm:block">
+                      <p className="text-sm font-medium">{monitor.uptime.toFixed(1)}%</p>
+                      <p className="text-xs text-muted-foreground">{monitor.avgResponseTime}ms</p>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 
       {/* 90-day Timeline */}
-      <Card>
-        <CardHeader>
-          <CardTitle>90-Day Uptime Timeline</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <UptimeTimeline data={mockTimelineData} />
-          <div className="flex items-center gap-4 mt-4 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-emerald-500" /> Operational</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-red-500" /> Outage</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-amber-500" /> Degraded</span>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Recent Activity */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Activity</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {[
-              { event: "Staging Server went down", monitor: "Staging Server", time: "2 minutes ago", type: "down" as const },
-              { event: "CDN Endpoint recovered", monitor: "CDN Endpoint", time: "1 hour ago", type: "up" as const },
-              { event: "DNS Resolution degraded", monitor: "DNS Resolution", time: "3 hours ago", type: "degraded" as const },
-              { event: "SSL certificate expiring in 15 days", monitor: "Production API", time: "5 hours ago", type: "warning" as const },
-            ].map((activity, i) => (
-              <div key={i} className="flex items-center gap-3 py-2 border-b last:border-0">
-                <span className={cn("w-2 h-2 rounded-full",
-                  activity.type === "up" && "bg-emerald-500",
-                  activity.type === "down" && "bg-red-500",
-                  activity.type === "degraded" && "bg-amber-500",
-                  activity.type === "warning" && "bg-blue-500"
-                )} />
-                <div className="flex-1">
-                  <p className="text-sm">{activity.event}</p>
-                  <p className="text-xs text-muted-foreground">{activity.monitor}</p>
+      {monitors.length > 0 && monitors.some(m => m.timelineDays.length > 0) && (
+        <Card>
+          <CardHeader>
+            <CardTitle>90-Day Uptime Timeline</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {monitors.map((m) => (
+                <div key={m.id}>
+                  <p className="text-sm font-medium mb-1">{m.name}</p>
+                  <UptimeTimeline data={m.timelineDays} />
                 </div>
-                <span className="text-xs text-muted-foreground">{activity.time}</span>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+              ))}
+            </div>
+            <div className="flex items-center gap-4 mt-4 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-emerald-500" /> Operational</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-red-500" /> Outage</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-amber-500" /> Degraded</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Recent Incidents */}
+      {monitors.some(m => m.incidents.length > 0) && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Open Incidents</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {monitors.flatMap(m => m.incidents.map(i => ({ ...i, monitorName: m.name }))).slice(0, 10).map((incident, i) => (
+                <div key={i} className="flex items-center gap-3 py-2 border-b last:border-0">
+                  <span className="w-2 h-2 rounded-full bg-red-500" />
+                  <div className="flex-1">
+                    <p className="text-sm">{incident.title}</p>
+                    <p className="text-xs text-muted-foreground">{incident.monitorName}</p>
+                  </div>
+                  <Badge variant="destructive" className="capitalize">{incident.status}</Badge>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
-}
-
-function cn(...classes: (string | boolean | undefined)[]) {
-  return classes.filter(Boolean).join(" ");
 }

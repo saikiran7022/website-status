@@ -1,35 +1,20 @@
-import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import * as schema from "@/drizzle/schema";
-import { eq } from "drizzle-orm";
-import { sha256 } from "@oslojs/crypto/sha2";
-import { encodeHexLowerCase } from "@oslojs/encoding";
+import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/db';
+import { getAuthUser } from '@/lib/auth';
 
-async function authenticateApiKey(request: Request): Promise<string | null> {
-  const authHeader = request.headers.get("authorization");
-  if (!authHeader || !authHeader.startsWith("Bearer ")) return null;
-
-  const apiKey = authHeader.slice(7);
-  const keyHash = encodeHexLowerCase(sha256(new TextEncoder().encode(apiKey)));
-
-  const key = await db.query.apiKeys.findFirst({
-    where: eq(schema.apiKeys.keyHash, keyHash),
-  });
-
-  return key?.organizationId ?? null;
+export async function GET(req: NextRequest) {
+  const user = await getAuthUser(req.headers.get('authorization') || undefined);
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const monitors = await prisma.monitor.findMany({ orderBy: { createdAt: 'desc' } });
+  return NextResponse.json(monitors);
 }
 
-// GET /api/v1/monitors
-export async function GET() {
-  try {
-    const orgId = await authenticateApiKey(new Request("http://localhost"));
-    // Note: We need to get the actual request for auth header
-    // For simplicity, we'll return mock data structure
-    return NextResponse.json({
-      monitors: [],
-      message: "API requires Bearer token authentication",
-    });
-  } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
-  }
+export async function POST(req: NextRequest) {
+  const user = await getAuthUser(req.headers.get('authorization') || undefined);
+  if (!user || user.role !== 'admin') return NextResponse.json({ error: 'Admin required' }, { status: 403 });
+  const { name, url, interval } = await req.json();
+  const monitor = await prisma.monitor.create({
+    data: { name, url, interval: interval || 5 },
+  });
+  return NextResponse.json(monitor, { status: 201 });
 }

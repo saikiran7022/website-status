@@ -1,50 +1,22 @@
-import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import * as schema from "@/drizzle/schema";
-import { eq } from "drizzle-orm";
-import { hashPassword, createSession, generateVerificationToken } from "@/lib/auth";
+import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/db';
+import { hashPassword, signToken } from '@/lib/auth';
 
-export async function POST(request: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const { name, email, password, orgName } = await request.json();
-
-    const existingUser = await db.query.users.findFirst({
-      where: eq(schema.users.email, email.toLowerCase()),
-    });
-
-    if (existingUser) {
-      return NextResponse.json({ success: false, error: "Email already registered" }, { status: 400 });
+    const { name, email, password } = await req.json();
+    const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    if (existing) {
+      return NextResponse.json({ success: false, error: 'Email already registered' }, { status: 400 });
     }
-
-    const passwordHash = await hashPassword(password);
-    const slug = orgName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-
-    const [user] = await db
-      .insert(schema.users)
-      .values({
-        name,
-        email: email.toLowerCase(),
-        passwordHash,
-        emailVerified: false,
-      })
-      .returning();
-
-    const [org] = await db
-      .insert(schema.organizations)
-      .values({ name: orgName, slug, plan: "free" })
-      .returning();
-
-    await db.insert(schema.memberships).values({
-      organizationId: org.id,
-      userId: user.id,
-      role: "admin",
+    const user = await prisma.user.create({
+      data: { name, email: email.toLowerCase(), password: await hashPassword(password), role: 'viewer' },
     });
-
-    await createSession(user.id);
-
-    return NextResponse.json({ success: true, user: { id: user.id, email: user.email } });
-  } catch (error) {
-    console.error("Signup error:", error);
-    return NextResponse.json({ success: false, error: "Internal server error" }, { status: 500 });
+    const token = signToken(user.id, user.role);
+    const response = NextResponse.json({ success: true, user: { id: user.id, email: user.email, name: user.name } });
+    response.cookies.set('ws_session', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 60 * 60 * 24 * 7, path: '/' });
+    return response;
+  } catch {
+    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }
 }

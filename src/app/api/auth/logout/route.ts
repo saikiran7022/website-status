@@ -1,7 +1,7 @@
-import { NextResponse } from "next/server";
-import { invalidateSession } from "@/lib/auth";
+import { NextResponse } from 'next/server';
 
 export async function POST() {
-  await invalidateSession();
-  return NextResponse.json({ success: true });
+  const response = NextResponse.json({ success: true });
+  response.cookies.set('ws_session', '', { maxAge: 0, path: '/' });
+  return response;
 }
