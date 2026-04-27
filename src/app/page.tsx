@@ -2,7 +2,11 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
 
 export default async function HomePage() {
-  const user = await getCurrentUser();
-  if (user) redirect("/dashboard");
+  try {
+    const user = await getCurrentUser();
+    if (user) redirect("/dashboard");
+  } catch {
+    // DB not ready yet, show login
+  }
   redirect("/login");
 }
