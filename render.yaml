@@ -3,6 +3,7 @@ services:
     name: website-status
     env: node
     plan: free
+    region: oregon
     buildCommand: npm install && npm run build
     startCommand: npx prisma db push && npm start
     healthCheckPath: /
@@ -15,6 +16,19 @@ services:
         fromDatabase:
           name: website-status-db
           property: connectionString
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL
+        fromService:
+          name: website-status
+          property: host
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
 
 databases:
   - name: website-status-db

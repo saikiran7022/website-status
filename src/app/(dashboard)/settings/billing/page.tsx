@@ -2,9 +2,18 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Check } from "lucide-react";
-import { getPlanBadgeClass } from "@/lib/utils";
+import { getCurrentUser } from "@/lib/auth/session";
+import { redirect } from "next/navigation";
+import { prisma } from "@/lib/db";
 
-export default function BillingPage() {
+export default async function BillingPage() {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+
+  const orgId = (user as any).orgId;
+  const monitorCount = await prisma.monitor.count({ where: { orgId } });
+  const memberCount = await prisma.user.count({ where: { orgId } });
+
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
@@ -22,22 +31,20 @@ export default function BillingPage() {
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-semibold">Free</span>
-                <Badge className={getPlanBadgeClass("free")}>Active</Badge>
+                <Badge>Active</Badge>
               </div>
               <p className="text-sm text-muted-foreground mt-1">10 monitors · 5-min intervals · Email alerts</p>
             </div>
-            <Button>Upgrade to Pro</Button>
           </div>
 
           <div className="space-y-4">
             <h3 className="font-medium">Usage</h3>
             <div className="space-y-2">
-              <div className="flex justify-between text-sm"><span>Monitors</span><span>3 / 10</span></div>
-              <div className="w-full bg-muted rounded-full h-2"><div className="bg-primary h-2 rounded-full" style={{ width: "30%" }} /></div>
+              <div className="flex justify-between text-sm"><span>Monitors</span><span>{monitorCount} / 10</span></div>
+              <div className="w-full bg-muted rounded-full h-2"><div className="bg-primary h-2 rounded-full" style={{ width: `${Math.min((monitorCount / 10) * 100, 100)}%` }} /></div>
             </div>
             <div className="space-y-2">
-              <div className="flex justify-between text-sm"><span>Team Members</span><span>2 / 3</span></div>
-              <div className="w-full bg-muted rounded-full h-2"><div className="bg-primary h-2 rounded-full" style={{ width: "66%" }} /></div>
+              <div className="flex justify-between text-sm"><span>Team Members</span><span>{memberCount}</span></div>
             </div>
           </div>
         </CardContent>
@@ -68,7 +75,6 @@ export default function BillingPage() {
               <span className="text-3xl font-bold">$29</span>
               <span className="text-muted-foreground">/month</span>
             </div>
-            <Button className="w-full mt-4">Upgrade Now</Button>
           </div>
         </CardContent>
       </Card>

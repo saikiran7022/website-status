@@ -1,21 +1,14 @@
-"use client";
-import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { Plus, Copy, Trash2, Key } from "lucide-react";
-import { formatDate } from "@/lib/utils";
-import { toast } from "sonner";
+import { Key, Info } from "lucide-react";
+import { getCurrentUser } from "@/lib/auth/session";
+import { redirect } from "next/navigation";
 
-const apiKeys = [
-  { id: "1", name: "Production Key", key: "ws_a1b2c3d4e5f6...", createdAt: new Date(Date.now() - 86400000 * 30), expiresAt: null },
-  { id: "2", name: "CI/CD Pipeline", key: "ws_x9y8z7w6v5u4...", createdAt: new Date(Date.now() - 86400000 * 7), expiresAt: new Date(Date.now() + 86400000 * 90) },
-];
-
-export default function ApiKeysPage() {
-  const [open, setOpen] = useState(false);
+export default async function ApiKeysPage() {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -24,45 +17,26 @@ export default function ApiKeysPage() {
           <h1 className="text-2xl font-bold">API Keys</h1>
           <p className="text-muted-foreground">Manage API keys for programmatic access</p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild><Button className="gap-2"><Plus className="w-4 h-4" /> Create Key</Button></DialogTrigger>
-          <DialogContent>
-            <DialogHeader><DialogTitle>Create API Key</DialogTitle></DialogHeader>
-            <div className="space-y-4">
-              <div className="space-y-2"><Label htmlFor="name">Key Name</Label><Input id="name" placeholder="e.g., Production API" /></div>
-            </div>
-            <DialogFooter><Button onClick={() => { setOpen(false); toast.success("API key created"); }}>Create Key</Button></DialogFooter>
-          </DialogContent>
-        </Dialog>
       </div>
 
       <Card>
-        <CardContent className="p-0">
-          {apiKeys.map((key, i) => (
-            <div key={key.id} className={cn("flex items-center gap-4 p-4", i !== apiKeys.length - 1 && "border-b")}>
-              <Key className="w-5 h-5 text-muted-foreground" />
-              <div className="flex-1">
-                <p className="font-medium">{key.name}</p>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <code className="bg-muted px-2 py-0.5 rounded text-xs">{key.key}</code>
-                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { navigator.clipboard.writeText(key.key); toast.success("Copied to clipboard"); }}>
-                    <Copy className="w-3 h-3" />
-                  </Button>
-                </div>
-              </div>
-              <div className="text-right text-xs text-muted-foreground">
-                <p>Created {formatDate(key.createdAt)}</p>
-                {key.expiresAt && <p>Expires {formatDate(key.expiresAt)}</p>}
-              </div>
-              <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></Button>
+        <CardHeader><CardTitle>API Access</CardTitle><CardDescription>Use API keys to authenticate with the REST API</CardDescription></CardHeader>
+        <CardContent>
+          <div className="flex items-start gap-3 p-4 bg-muted rounded-lg mb-6">
+            <Info className="w-5 h-5 text-muted-foreground mt-0.5 flex-shrink-0" />
+            <div className="text-sm text-muted-foreground">
+              <p>Include your API key in the <code className="bg-background px-1.5 py-0.5 rounded text-xs font-mono">Authorization</code> header:</p>
+              <pre className="mt-2 bg-background p-3 rounded text-xs font-mono overflow-x-auto">
+                curl -H &quot;Authorization: Bearer ws_session_token&quot; https://your-domain.com/api/v1/monitors
+              </pre>
             </div>
-          ))}
+          </div>
+
+          <p className="text-sm text-muted-foreground">
+            API keys can be generated via the API. Use your session token (from login) to create and manage API keys.
+          </p>
         </CardContent>
       </Card>
     </div>
   );
-}
-
-function cn(...classes: (string | boolean | undefined)[]) {
-  return classes.filter(Boolean).join(" ");
 }

@@ -26,9 +26,10 @@ export async function testMonitor(monitor: { id: string; url: string; timeout?: 
   return checkUrl(monitor.url);
 }
 
-export async function runAllChecks() {
+export async function runAllChecks(): Promise<Array<{ monitor: { id: string; name: string; url: string }; result: { status: string; statusCode: number | null; responseTime: number; error: string | null } }>> {
   const monitors = await prisma.monitor.findMany({ where: { isActive: true } });
   console.log(`[checker] Running ${monitors.length} checks...`);
+  const results: Array<{ monitor: { id: string; name: string; url: string }; result: { status: string; statusCode: number | null; responseTime: number; error: string | null } }> = [];
   for (const m of monitors) {
     const result = await checkUrl(m.url);
     await prisma.checkResult.create({
@@ -46,5 +47,7 @@ export async function runAllChecks() {
       }
     }
     console.log(`[checker] ${m.name} (${m.url}): ${result.status} ${result.responseTime}ms`);
+    results.push({ monitor: { id: m.id, name: m.name, url: m.url }, result });
   }
+  return results;
 }

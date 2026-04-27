@@ -14,6 +14,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 interface Monitor {
@@ -23,15 +24,7 @@ interface Monitor {
   isActive: boolean;
   interval: number;
   _count: { checkResults: number; incidents: number };
-}
-
-function getStatusBg(status: string) {
-  switch (status) {
-    case 'up': return 'bg-emerald-500';
-    case 'down': return 'bg-red-500';
-    case 'degraded': return 'bg-amber-500';
-    default: return 'bg-gray-400';
-  }
+  checkResults?: Array<{ status: string; responseTime: number }>;
 }
 
 function formatInterval(seconds: number): string {
@@ -63,7 +56,38 @@ export default function MonitorsPage() {
     }
   }
 
-  const filtered = monitors.filter(m =>
+  async function toggleMonitor(id: string, isActive: boolean) {
+    try {
+      const res = await fetch(`/api/monitors/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive }),
+      });
+      if (res.ok) {
+        toast.success(`Monitor ${isActive ? "activated" : "paused"}`);
+        fetchMonitors();
+      }
+    } catch {
+      toast.error("Failed to update monitor");
+    }
+  }
+
+  async function deleteMonitor(id: string, name: string) {
+    if (!confirm(`Delete monitor "${name}"? This cannot be undone.`)) return;
+    try {
+      const res = await fetch(`/api/monitors/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        toast.success("Monitor deleted");
+        fetchMonitors();
+      } else {
+        toast.error("Failed to delete monitor");
+      }
+    } catch {
+      toast.error("Failed to delete monitor");
+    }
+  }
+
+  const filtered = monitors.filter((m) =>
     m.name.toLowerCase().includes(search.toLowerCase()) ||
     m.url.toLowerCase().includes(search.toLowerCase())
   );
@@ -91,54 +115,62 @@ export default function MonitorsPage() {
         <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">
-          <p>{search ? "No monitors match your search" : "No monitors yet"}</p>
+          <p>{search ? "No monitors match your search" : "No monitors yet. Add one to get started."}</p>
         </div>
       ) : (
         <div className="grid gap-4">
-          {filtered.map((monitor) => (
-            <Card key={monitor.id}>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-4">
-                  <span className={`w-3 h-3 rounded-full flex-shrink-0 ${monitor.isActive ? 'bg-emerald-500' : 'bg-gray-400'}`} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-semibold">{monitor.name}</h3>
-                      {!monitor.isActive && <Badge variant="secondary" className="text-xs">Paused</Badge>}
+          {filtered.map((monitor) => {
+            const lastStatus = monitor.checkResults?.[0]?.status || "unknown";
+            return (
+              <Card key={monitor.id}>
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-4">
+                    <span className={cn("w-3 h-3 rounded-full flex-shrink-0", monitor.isActive ? (lastStatus === "up" ? "bg-emerald-500" : lastStatus === "down" ? "bg-red-500" : "bg-amber-500") : "bg-gray-400")} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold">{monitor.name}</h3>
+                        {!monitor.isActive && <Badge variant="secondary" className="text-xs">Paused</Badge>}
+                      </div>
+                      <p className="text-sm text-muted-foreground truncate">{monitor.url}</p>
                     </div>
-                    <p className="text-sm text-muted-foreground truncate">{monitor.url}</p>
+                    <div className="hidden md:flex items-center gap-6 text-sm">
+                      <div className="text-right">
+                        <p className="text-muted-foreground text-xs">Checks</p>
+                        <p className="font-semibold">{monitor._count.checkResults}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-muted-foreground text-xs">Incidents</p>
+                        <p className="font-semibold">{monitor._count.incidents}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-muted-foreground text-xs">Interval</p>
+                        <p className="font-semibold">{formatInterval(monitor.interval)}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Switch checked={monitor.isActive} onCheckedChange={(v) => toggleMonitor(monitor.id, v)} />
+                      <Link href={`/dashboard/monitors/${monitor.id}`}>
+                        <Button variant="ghost" size="icon"><ExternalLink className="w-4 h-4" /></Button>
+                      </Link>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon"><MoreVertical className="w-4 h-4" /></Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => toggleMonitor(monitor.id, !monitor.isActive)}>
+                            {monitor.isActive ? <><Pause className="w-4 h-4 mr-2" />Pause</> : <><Play className="w-4 h-4 mr-2" />Activate</>}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem className="text-red-600" onClick={() => deleteMonitor(monitor.id, monitor.name)}>
+                            <Trash2 className="w-4 h-4 mr-2" />Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </div>
-                  <div className="hidden md:flex items-center gap-6 text-sm">
-                    <div className="text-right">
-                      <p className="text-muted-foreground text-xs">Checks</p>
-                      <p className="font-semibold">{monitor._count.checkResults}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-muted-foreground text-xs">Incidents</p>
-                      <p className="font-semibold">{monitor._count.incidents}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-muted-foreground text-xs">Interval</p>
-                      <p className="font-semibold">{formatInterval(monitor.interval)}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Link href={`/dashboard/monitors/${monitor.id}`}>
-                      <Button variant="ghost" size="icon"><ExternalLink className="w-4 h-4" /></Button>
-                    </Link>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon"><MoreVertical className="w-4 h-4" /></Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem><Pause className="w-4 h-4 mr-2" />Pause</DropdownMenuItem>
-                        <DropdownMenuItem className="text-red-600"><Trash2 className="w-4 h-4 mr-2" />Delete</DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>
