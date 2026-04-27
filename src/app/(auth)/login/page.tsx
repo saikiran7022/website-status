@@ -1,6 +1,5 @@
 "use client";
-export const dynamic = "force-dynamic";
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -9,14 +8,24 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Activity, Github } from "lucide-react";
 import { toast } from "sonner";
+import { useEffect } from "react";
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") || "/dashboard";
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+
+  useEffect(() => {
+    const error = searchParams.get("error");
+    if (error) {
+      if (error === "github_no_code") toast.error("GitHub login incomplete. Please try again.");
+      else if (error === "github_no_email") toast.error("GitHub account has no verified email.");
+      else toast.error(`GitHub login failed: ${error}`);
+    }
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,7 +51,13 @@ export default function LoginPage() {
   };
 
   const handleGitHubLogin = () => {
-    window.location.href = `/api/auth/github/callback`;
+    const redirectUri = process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/github/callback` : `/api/auth/github/callback`;
+    const clientId = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID || process.env.GITHUB_CLIENT_ID || "";
+    if (!clientId) {
+      toast.error("GitHub OAuth is not configured. Use email login.");
+      return;
+    }
+    window.location.href = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=user:email`;
   };
 
   return (
@@ -76,14 +91,18 @@ export default function LoginPage() {
               </Button>
             </form>
 
-            <div className="relative my-6">
-              <div className="absolute inset-0 flex items-center"><span className="w-full border-t" /></div>
-              <div className="relative flex justify-center text-xs uppercase"><span className="bg-card px-2 text-muted-foreground">Or continue with</span></div>
-            </div>
+            {process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID && (
+              <>
+                <div className="relative my-6">
+                  <div className="absolute inset-0 flex items-center"><span className="w-full border-t" /></div>
+                  <div className="relative flex justify-center text-xs uppercase"><span className="bg-card px-2 text-muted-foreground">Or continue with</span></div>
+                </div>
 
-            <Button variant="outline" className="w-full gap-2" onClick={handleGitHubLogin}>
-              <Github className="w-4 h-4" /> GitHub
-            </Button>
+                <Button variant="outline" className="w-full gap-2" onClick={handleGitHubLogin}>
+                  <Github className="w-4 h-4" /> GitHub
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -95,5 +114,13 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginContent />
+    </Suspense>
   );
 }

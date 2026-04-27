@@ -2,7 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { UptimeTimeline } from "@/components/charts/uptime-timeline";
 import { Activity, CheckCircle, AlertTriangle, Clock, ExternalLink } from "lucide-react";
-import { formatUptime, getStatusBg, formatDate, formatResponseTime } from "@/lib/utils";
+import { formatUptime, getStatusBg, formatDate, formatResponseTime, cn } from "@/lib/utils";
 
 export default async function PublicStatusPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -135,6 +135,4 @@ export default async function PublicStatusPage({ params }: { params: Promise<{ s
   );
 }
 
-function cn(...classes: string[]) {
-  return classes.filter(Boolean).join(" ");
-}
+
