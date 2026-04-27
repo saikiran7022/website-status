@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
     const response = NextResponse.redirect(new URL("/dashboard", request.url));
     response.cookies.set("ws_session", token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: true,
       sameSite: "lax",
       maxAge: 60 * 60 * 24 * 7,
       path: "/",

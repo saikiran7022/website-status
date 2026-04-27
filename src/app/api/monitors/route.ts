@@ -50,6 +50,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const user = await getAuthenticatedUser(req);
+  console.log('[monitors POST] user:', user ? { id: user.id, role: (user as any).role, orgId: (user as any).orgId } : 'null');
   if (!user || (user as any).role !== 'admin') return NextResponse.json({ error: 'Admin required' }, { status: 403 });
 
   const orgId = (user as any).orgId;
