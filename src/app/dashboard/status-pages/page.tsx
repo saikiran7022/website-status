@@ -2,38 +2,35 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Plus, ExternalLink, Globe, Eye } from "lucide-react";
-import { formatDate, getStatusBg, cn } from "@/lib/utils";
+import { Globe, Eye, Pencil } from "lucide-react";
+import { getStatusBg, cn } from "@/lib/utils";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth/session";
+import { redirect } from "next/navigation";
+
+export const dynamic = "force-dynamic";
 
 export default async function StatusPagesPage() {
   const user = await getCurrentUser();
-  if (!user) return <div className="p-6">Please sign in</div>;
+  if (!user) redirect("/login");
+  const orgId = user.orgId!;
 
-  const orgId = (user as any).orgId;
+  const [statusPage, monitors] = await Promise.all([
+    prisma.statusPage.findUnique({ where: { orgId } }),
+    prisma.monitor.findMany({
+      where: { orgId },
+      include: { checkResults: { orderBy: { timestamp: "desc" }, take: 1 } },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
 
-  const monitors = await prisma.monitor.findMany({
-    where: { orgId },
-    include: {
-      checkResults: {
-        orderBy: { timestamp: "desc" },
-        take: 1,
-      },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-
-  const org = await prisma.org.findUnique({ where: { id: orgId } });
-  const slug = org?.slug || "status";
+  const slug = statusPage?.slug || user.org?.slug || "status";
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold">Status Pages</h1>
-          <p className="text-muted-foreground">Public status pages for your services</p>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold">Status Pages</h1>
+        <p className="text-muted-foreground">A public page that shows your services&apos; health</p>
       </div>
 
       <Card>
@@ -41,13 +38,13 @@ export default async function StatusPagesPage() {
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
               <Globe className="w-4 h-4" />
-              {org?.name || "Organization"} Status
+              {statusPage?.title || `${user.org?.name || "Organization"} Status`}
             </CardTitle>
-            <Badge variant="default">Public</Badge>
+            <Badge variant={statusPage?.isPublic === false ? "secondary" : "default"}>
+              {statusPage?.isPublic === false ? "Private" : "Public"}
+            </Badge>
           </div>
-          <CardDescription>
-            status.yourdomain.com/{slug} · {monitors.length} monitors
-          </CardDescription>
+          <CardDescription>/status/{slug} · {monitors.length} monitors</CardDescription>
         </CardHeader>
         <CardContent>
           {monitors.length === 0 ? (
@@ -55,8 +52,7 @@ export default async function StatusPagesPage() {
           ) : (
             <div className="space-y-2">
               {monitors.map((m) => {
-                const lastCheck = m.checkResults[0];
-                const status = lastCheck?.status || "unknown";
+                const status = m.checkResults[0]?.status || "unknown";
                 return (
                   <div key={m.id} className="flex items-center gap-2 py-1">
                     <span className={cn("w-2 h-2 rounded-full", getStatusBg(status as any))} />
@@ -70,6 +66,9 @@ export default async function StatusPagesPage() {
           <div className="flex gap-2 mt-4">
             <Link href={`/status/${slug}`} target="_blank">
               <Button variant="outline" size="sm" className="gap-2"><Eye className="w-4 h-4" /> View Public Page</Button>
+            </Link>
+            <Link href={`/dashboard/status-pages/${slug}`}>
+              <Button variant="outline" size="sm" className="gap-2"><Pencil className="w-4 h-4" /> Customize</Button>
             </Link>
           </div>
         </CardContent>

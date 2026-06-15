@@ -17,6 +17,18 @@ export default function SignUpPage() {
   const [password, setPassword] = useState("");
   const [orgName, setOrgName] = useState("");
 
+  const handleGitHub = () => {
+    const clientId = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID || "";
+    if (!clientId) {
+      toast.error("GitHub OAuth is not configured. Use email signup.");
+      return;
+    }
+    const redirectUri = process.env.NEXT_PUBLIC_APP_URL
+      ? `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/github/callback`
+      : `${window.location.origin}/api/auth/github/callback`;
+    window.location.href = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=user:email`;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -79,14 +91,18 @@ export default function SignUpPage() {
               </Button>
             </form>
 
-            <div className="relative my-6">
-              <div className="absolute inset-0 flex items-center"><span className="w-full border-t" /></div>
-              <div className="relative flex justify-center text-xs uppercase"><span className="bg-card px-2 text-muted-foreground">Or continue with</span></div>
-            </div>
+            {process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID && (
+              <>
+                <div className="relative my-6">
+                  <div className="absolute inset-0 flex items-center"><span className="w-full border-t" /></div>
+                  <div className="relative flex justify-center text-xs uppercase"><span className="bg-card px-2 text-muted-foreground">Or continue with</span></div>
+                </div>
 
-            <Button variant="outline" className="w-full gap-2">
-              <Github className="w-4 h-4" /> GitHub
-            </Button>
+                <Button type="button" variant="outline" className="w-full gap-2" onClick={handleGitHub}>
+                  <Github className="w-4 h-4" /> GitHub
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
 

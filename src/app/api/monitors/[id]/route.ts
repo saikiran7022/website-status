@@ -1,50 +1,65 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
-import { getAuthUser } from '@/lib/auth';
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
+import { requireAuth } from "@/lib/api";
 
-async function ensureOwnership(req: NextRequest, id: string) {
-  const user = await getAuthUser(req.headers.get('authorization') || undefined);
-  if (!user) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
+export const dynamic = "force-dynamic";
 
-  const orgId = (user as any).orgId;
+async function loadOwned(orgId: string, id: string) {
   const monitor = await prisma.monitor.findUnique({ where: { id } });
-  if (!monitor || monitor.orgId !== orgId) {
-    return { error: NextResponse.json({ error: 'Not found' }, { status: 404 }) };
-  }
-  return { monitor, orgId, user };
+  if (!monitor || monitor.orgId !== orgId) return null;
+  return monitor;
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAuth(req);
+  if ("error" in auth) return auth.error;
   const { id } = await params;
-  const result = await ensureOwnership(req, id);
-  if ((result as any).error) return (result as any).error;
-  return NextResponse.json((result as any).monitor);
-}
-
-export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const result = await ensureOwnership(req, id);
-  if ((result as any).error) return (result as any).error;
-  if ((result as any).user.role !== 'admin') return NextResponse.json({ error: 'Admin required' }, { status: 403 });
-
-  await prisma.monitor.delete({ where: { id } });
-  return NextResponse.json({ ok: true });
+  const monitor = await loadOwned(auth.ctx.orgId, id);
+  if (!monitor) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  return NextResponse.json(monitor);
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAuth(req, { roles: ["admin", "editor"] });
+  if ("error" in auth) return auth.error;
   const { id } = await params;
-  const result = await ensureOwnership(req, id);
-  if ((result as any).error) return (result as any).error;
+  const monitor = await loadOwned(auth.ctx.orgId, id);
+  if (!monitor) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const body = await req.json();
-  const updated = await prisma.monitor.update({
-    where: { id },
-    data: {
-      ...(body.isActive !== undefined && { isActive: body.isActive }),
-      ...(body.name !== undefined && { name: body.name }),
-      ...(body.url !== undefined && { url: body.url }),
-      ...(body.interval !== undefined && { interval: body.interval }),
-    },
-  });
-  return NextResponse.json(updated);
+  const body = await req.json().catch(() => ({}));
+  const data: Record<string, unknown> = {};
+  if (body.name !== undefined) data.name = String(body.name).trim();
+  if (body.url !== undefined) {
+    const url = String(body.url).trim();
+    data.url = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+  }
+  if (body.method !== undefined) data.method = String(body.method).toUpperCase();
+  if (body.interval !== undefined) data.interval = Number(body.interval);
+  if (body.timeout !== undefined) data.timeout = Number(body.timeout);
+  if (body.expectedStatus !== undefined) data.expectedStatus = body.expectedStatus ? Number(body.expectedStatus) : null;
+  if (body.keyword !== undefined) data.keyword = body.keyword?.trim() || null;
+  if (body.headers !== undefined) data.headers = body.headers?.trim() || null;
+  if (body.body !== undefined) data.body = body.body?.trim() || null;
+  if (body.isActive !== undefined) data.isActive = Boolean(body.isActive);
+
+  try {
+    const updated = await prisma.monitor.update({ where: { id }, data });
+    return NextResponse.json(updated);
+  } catch (err: any) {
+    if (err?.code === "P2002") {
+      return NextResponse.json({ error: "A monitor for this URL already exists" }, { status: 409 });
+    }
+    return NextResponse.json({ error: "Failed to update monitor" }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAuth(req, { roles: ["admin", "editor"] });
+  if ("error" in auth) return auth.error;
+  const { id } = await params;
+  const monitor = await loadOwned(auth.ctx.orgId, id);
+  if (!monitor) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  await prisma.monitor.delete({ where: { id } });
+  return NextResponse.json({ ok: true });
 }

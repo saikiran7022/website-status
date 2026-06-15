@@ -11,6 +11,7 @@
     "db:migrate": "prisma migrate deploy",
     "seed": "tsx src/lib/seed.ts",
     "worker": "tsx scripts/worker.ts",
+    "lint": "next lint",
     "test": "jest --passWithNoTests",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage"

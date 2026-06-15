@@ -9,6 +9,8 @@ import { Activity, CheckCircle, AlertCircle, Clock, Plus } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth/session";
 
+export const dynamic = "force-dynamic";
+
 function getStatusColor(status: string) {
   switch (status) {
     case 'up': return 'bg-emerald-500';
@@ -28,67 +30,61 @@ function getBadgeVariant(status: string) {
 }
 
 async function getDashboardData(orgId: string) {
+  const now = new Date();
+  const since24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const since90 = new Date(now);
+  since90.setDate(since90.getDate() - 90);
+  since90.setHours(0, 0, 0, 0);
+
   const monitors = await prisma.monitor.findMany({
     where: { orgId },
     include: {
+      // One query per monitor for the full 90-day window; the 24h slice and the
+      // daily timeline are both derived from this in memory.
       checkResults: {
+        where: { timestamp: { gte: since90 } },
         orderBy: { timestamp: 'desc' },
-        take: 1,
+        select: { status: true, responseTime: true, timestamp: true },
       },
-      incidents: {
-        where: { status: 'open' },
-        take: 5,
-      },
+      incidents: { where: { status: 'open' }, take: 5 },
     },
     orderBy: { createdAt: 'desc' },
   });
 
-  const now = new Date();
-  const since24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  return monitors.map((m) => {
+    const checks24 = m.checkResults.filter((c) => c.timestamp >= since24h);
+    const upCount = checks24.filter((c) => c.status === 'up' || c.status === 'degraded').length;
+    const avgResp = checks24.length > 0 ? Math.round(checks24.reduce((s, c) => s + c.responseTime, 0) / checks24.length) : 0;
+    const uptime = checks24.length > 0 ? (upCount / checks24.length) * 100 : 100;
+    const lastCheck = m.checkResults[0];
 
-  const monitorsWithStats = await Promise.all(
-    monitors.map(async (m) => {
-      const checks = await prisma.checkResult.findMany({
-        where: { monitorId: m.id, timestamp: { gte: since24h } },
-        orderBy: { timestamp: 'desc' },
-      });
-      const upCount = checks.filter(c => c.status === 'up' || c.status === 'degraded').length;
-      const avgResp = checks.length > 0 ? Math.round(checks.reduce((s, c) => s + c.responseTime, 0) / checks.length) : 0;
-      const uptime = checks.length > 0 ? (upCount / checks.length) * 100 : 100;
-      const lastCheck = checks[0];
-
-      const timelineDays: { date: Date; status: 'up' | 'down' | 'partial' | 'none' }[] = [];
-      for (let i = 89; i >= 0; i--) {
-        const d = new Date(now);
-        d.setDate(d.getDate() - i);
-        d.setHours(0, 0, 0, 0);
-        const next = new Date(d);
-        next.setDate(next.getDate() + 1);
-        const dayChecks = await prisma.checkResult.findMany({
-          where: { monitorId: m.id, timestamp: { gte: d, lt: next } },
-        });
-        if (dayChecks.length === 0) {
-          timelineDays.push({ date: d, status: 'up' });
-        } else {
-          const dayUp = dayChecks.filter(c => c.status === 'up' || c.status === 'degraded' || c.status === 'partial').length;
-          const ratio = dayUp / dayChecks.length;
-          timelineDays.push({ date: d, status: ratio >= 0.95 ? 'up' : ratio >= 0.5 ? 'partial' : 'down' });
-        }
+    const timelineDays: { date: Date; status: 'up' | 'down' | 'partial' | 'none' }[] = [];
+    for (let i = 89; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      d.setHours(0, 0, 0, 0);
+      const next = new Date(d);
+      next.setDate(next.getDate() + 1);
+      const dayChecks = m.checkResults.filter((c) => c.timestamp >= d && c.timestamp < next);
+      if (dayChecks.length === 0) {
+        timelineDays.push({ date: d, status: 'none' });
+      } else {
+        const dayUp = dayChecks.filter((c) => c.status === 'up' || c.status === 'degraded').length;
+        const ratio = dayUp / dayChecks.length;
+        timelineDays.push({ date: d, status: ratio >= 0.95 ? 'up' : ratio >= 0.5 ? 'partial' : 'down' });
       }
+    }
 
-      return {
-        ...m,
-        uptime,
-        avgResponseTime: avgResp,
-        lastStatus: lastCheck?.status || 'unknown',
-        lastCheckTime: lastCheck?.timestamp,
-        timelineDays,
-        incidents: m.incidents,
-      };
-    })
-  );
-
-  return monitorsWithStats;
+    return {
+      ...m,
+      uptime,
+      avgResponseTime: avgResp,
+      lastStatus: lastCheck?.status || 'unknown',
+      lastCheckTime: lastCheck?.timestamp,
+      timelineDays,
+      incidents: m.incidents,
+    };
+  });
 }
 
 export default async function DashboardPage() {

@@ -1,36 +1,30 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { createHash, randomBytes } from "crypto";
+
+/**
+ * The JWT signing secret. In production a strong secret MUST be provided via the
+ * JWT_SECRET environment variable — the insecure fallback is only used in
+ * development/test so the app can boot without configuration.
+ */
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || secret.length < 16) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("JWT_SECRET must be set to a strong value in production");
+    }
+    return "dev-insecure-secret-change-me";
+  }
+  return secret;
+}
 
 export function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 12);
 }
 
 export function verifyPassword(password: string, hash: string): Promise<boolean> {
+  if (!hash) return Promise.resolve(false);
   return bcrypt.compare(password, hash);
-}
-
-export function generateSessionToken(): string {
-  const bytes = new Uint8Array(20);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
-}
-
-export function createSessionTokenHash(token: string): string {
-  const hash = new Uint8Array(32);
-  crypto.getRandomValues(hash);
-  return Array.from(hash, b => b.toString(16).padStart(2, '0')).join('');
-}
-
-export function generateVerificationToken(): string {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
-}
-
-export function generateAPIKey(): string {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return `ws_${Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')}`;
 }
 
 export interface TokenPayload {
@@ -39,16 +33,40 @@ export interface TokenPayload {
   orgId?: string;
 }
 
-export function signToken(userId: string, role: string, orgId?: string): string {
+export function signToken(userId: string, role: string, orgId?: string | null): string {
   const payload: TokenPayload = { userId, role };
   if (orgId) payload.orgId = orgId;
-  return jwt.sign(payload, process.env.JWT_SECRET || 'change-me', { expiresIn: '7d' });
+  return jwt.sign(payload, getJwtSecret(), { expiresIn: "7d" });
 }
 
 export function verifyToken(token: string): TokenPayload | null {
   try {
-    return jwt.verify(token, process.env.JWT_SECRET || 'change-me') as TokenPayload;
+    return jwt.verify(token, getJwtSecret()) as TokenPayload;
   } catch {
     return null;
   }
+}
+
+/** Deterministic SHA-256 hash, used to store API keys without keeping the plaintext. */
+export function sha256(input: string): string {
+  return createHash("sha256").update(input).digest("hex");
+}
+
+/** A random opaque token, hex-encoded. */
+export function randomToken(bytes = 32): string {
+  return randomBytes(bytes).toString("hex");
+}
+
+export function generateVerificationToken(): string {
+  return randomToken(32);
+}
+
+/**
+ * Generate a new API key. Returns the plaintext key (shown to the user exactly
+ * once), a short prefix for display, and the sha256 hash to persist.
+ */
+export function generateApiKey(): { key: string; prefix: string; hash: string } {
+  const raw = randomToken(24);
+  const key = `ws_${raw}`;
+  return { key, prefix: `ws_${raw.slice(0, 6)}`, hash: sha256(key) };
 }

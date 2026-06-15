@@ -133,33 +133,26 @@ describe('Badge Component', () => {
 // ─── Checker Module Tests ───────────────────────────────────────────────
 
 describe('Checker Module', () => {
-  it('should exist and export runAllChecks', () => {
+  const checkerPath = require('path').join(__dirname, '../src/lib/checker/index.ts');
+
+  it('should exist and export the check functions', () => {
     const fs = require('fs');
-    const path = require('path');
-    const checkerPath = path.join(__dirname, '../src/lib/checker.ts');
     expect(fs.existsSync(checkerPath)).toBe(true);
     const content = fs.readFileSync(checkerPath, 'utf-8');
-    expect(content).toContain('export');
-    expect(content).toContain('checkUrl');
+    expect(content).toContain('performCheck');
+    expect(content).toContain('runDueChecks');
+    expect(content).toContain('runAllChecks');
   });
 
   it('should have timeout handling', () => {
     const fs = require('fs');
-    const path = require('path');
-    const content = fs.readFileSync(
-      path.join(__dirname, '../src/lib/checker.ts'),
-      'utf-8'
-    );
+    const content = fs.readFileSync(checkerPath, 'utf-8');
     expect(content).toMatch(/timeout|abort|signal/i);
   });
 
   it('should handle errors gracefully', () => {
     const fs = require('fs');
-    const path = require('path');
-    const content = fs.readFileSync(
-      path.join(__dirname, '../src/lib/checker.ts'),
-      'utf-8'
-    );
+    const content = fs.readFileSync(checkerPath, 'utf-8');
     expect(content).toContain('catch');
   });
 });
