@@ -1,0 +1,30 @@
+name: Uptime checks
+
+# Drives continuous monitor checks on Render's free tier by calling the app's
+# /api/cron endpoint on a schedule. GitHub's scheduled runs fire roughly every
+# 5 minutes (minimum granularity) and may be delayed under load.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {} # allow manual "Run workflow" triggers
+
+# Avoid overlapping runs if a previous check cycle is still going.
+concurrency:
+  group: uptime-checks
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger due checks
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ]; then
+            echo "::error::Repository variable APP_URL is not set (e.g. https://website-status.onrender.com)"
+            exit 1
+          fi
+          curl -fsS --max-time 90 -X POST "$APP_URL/api/cron" \
+            -H "Authorization: Bearer $CRON_SECRET"
