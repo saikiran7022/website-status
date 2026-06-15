@@ -11,6 +11,8 @@ import { formatUptime, formatResponseTime, getStatusBg, formatDate, formatDurati
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth/session";
 
+export const dynamic = "force-dynamic";
+
 async function getMonitorData(id: string, orgId: string) {
   const monitor = await prisma.monitor.findUnique({
     where: { id, orgId },

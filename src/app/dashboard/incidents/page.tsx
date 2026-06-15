@@ -24,16 +24,27 @@ interface Incident {
   monitor: { name: string; url: string };
 }
 
+interface MonitorOption {
+  id: string;
+  name: string;
+}
+
 export default function IncidentsPage() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [monitors, setMonitors] = useState<MonitorOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
+  const [monitorId, setMonitorId] = useState("");
   const [severity, setSeverity] = useState<IncidentSeverity>("major");
   const [description, setDescription] = useState("");
 
   useEffect(() => {
     fetchIncidents();
+    fetch("/api/monitors")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: MonitorOption[]) => setMonitors(data))
+      .catch(() => {});
   }, []);
 
   async function fetchIncidents() {
@@ -55,11 +66,15 @@ export default function IncidentsPage() {
       toast.error("Title is required");
       return;
     }
+    if (!monitorId) {
+      toast.error("Select a monitor");
+      return;
+    }
     try {
       const res = await fetch("/api/incidents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, severity, description }),
+        body: JSON.stringify({ monitorId, title, severity, description }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -67,6 +82,7 @@ export default function IncidentsPage() {
         setOpen(false);
         setTitle("");
         setDescription("");
+        setMonitorId("");
         fetchIncidents();
       } else {
         toast.error(data.error || "Failed to create incident");
@@ -115,6 +131,17 @@ export default function IncidentsPage() {
             <DialogHeader><DialogTitle>Create Incident</DialogTitle></DialogHeader>
             <div className="space-y-4">
               <div className="space-y-2"><Label htmlFor="title">Title</Label><Input id="title" placeholder="Brief description" value={title} onChange={(e) => setTitle(e.target.value)} /></div>
+              <div className="space-y-2">
+                <Label htmlFor="monitor">Monitor</Label>
+                <Select value={monitorId} onValueChange={setMonitorId}>
+                  <SelectTrigger><SelectValue placeholder="Select a monitor" /></SelectTrigger>
+                  <SelectContent>
+                    {monitors.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="space-y-2"><Label htmlFor="severity">Severity</Label>
                 <Select value={severity} onValueChange={(v) => setSeverity(v as IncidentSeverity)}>
                   <SelectTrigger><SelectValue placeholder="Select severity" /></SelectTrigger>

@@ -1,6 +1,7 @@
 "use client";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
@@ -14,6 +15,7 @@ import {
   CreditCard,
   ChevronDown,
   Activity,
+  LogOut,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -92,6 +94,22 @@ export function Sidebar() {
 }
 
 export function Header() {
+  const router = useRouter();
+  const [me, setMe] = useState<{ name: string; email: string; org: { name: string; slug: string } | null } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setMe)
+      .catch(() => {});
+  }, []);
+
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/login");
+    router.refresh();
+  }
+
   return (
     <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="flex h-14 items-center gap-4 px-6">
@@ -100,18 +118,28 @@ export function Header() {
             <div className="w-7 h-7 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-md flex items-center justify-center md:hidden">
               <Activity className="w-4 h-4 text-white" />
             </div>
-            <span className="hidden sm:inline-block">My Organization</span>
+            <span className="hidden sm:inline-block">{me?.org?.name || "Organization"}</span>
             <ChevronDown className="w-4 h-4" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
-            <DropdownMenuItem>My Organization</DropdownMenuItem>
-            <DropdownMenuItem>Personal Workspace</DropdownMenuItem>
+            <DropdownMenuItem disabled className="flex-col items-start">
+              <span className="font-medium">{me?.name}</span>
+              <span className="text-xs text-muted-foreground">{me?.email}</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href="/dashboard/settings">Settings</Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={logout} className="text-red-600">
+              <LogOut className="w-4 h-4 mr-2" /> Sign out
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
         <div className="flex-1" />
-        <Link href="/" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-          View Public Status
-        </Link>
+        {me?.org?.slug && (
+          <Link href={`/status/${me.org.slug}`} target="_blank" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+            View Public Status
+          </Link>
+        )}
       </div>
     </header>
   );

@@ -8,47 +8,63 @@ datasource db {
 }
 
 model User {
-  id          String   @id @default(cuid())
-  email       String   @unique
-  name        String
-  password    String
-  role        String   @default("viewer")
-  orgId       String?
-  org         Org?     @relation(fields: [orgId], references: [id])
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String
+  // Hashed password. Empty for accounts created exclusively via OAuth.
+  password      String   @default("")
+  role          String   @default("viewer") // admin | editor | viewer
+  emailVerified Boolean  @default(false)
+  githubId      String?  @unique
+  orgId         String?
+  org           Org?     @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  apiKeys       ApiKey[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 model Org {
-  id        String   @id @default(cuid())
-  name      String
-  slug      String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  members   User[]
-  monitors  Monitor[]
+  id               String          @id @default(cuid())
+  name             String
+  slug             String          @unique
+  plan             String          @default("free") // free | pro | enterprise
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  members          User[]
+  monitors         Monitor[]
+  apiKeys          ApiKey[]
+  alertChannels    AlertChannel[]
+  alertDeliveries  AlertDelivery[]
+  statusPage       StatusPage?
 }
 
 model Monitor {
-  id          String        @id @default(cuid())
-  orgId       String
-  org         Org           @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  name        String
-  url         String
-  interval    Int           @default(5)
-  isActive    Boolean       @default(true)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  checkResults CheckResult[]
-  incidents   Incident[]
+  id             String        @id @default(cuid())
+  orgId          String
+  org            Org           @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name           String
+  url            String
+  method         String        @default("GET")
+  interval       Int           @default(5) // minutes between checks
+  timeout        Int           @default(30000) // milliseconds
+  expectedStatus Int? // optional explicit expected HTTP status code
+  keyword        String? // optional substring that must appear in the response body
+  headers        String? // optional JSON object of request headers
+  body           String? // optional request body for POST/PUT/PATCH
+  isActive       Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  checkResults   CheckResult[]
+  incidents      Incident[]
 
   @@unique([orgId, url])
+  @@index([isActive])
 }
 
 model CheckResult {
   id           String   @id @default(cuid())
   monitorId    String
-  status       String
+  status       String // up | degraded | down
   statusCode   Int?
   responseTime Int
   timestamp    DateTime @default(now())
@@ -59,13 +75,90 @@ model CheckResult {
 }
 
 model Incident {
-  id          String   @id @default(cuid())
+  id          String           @id @default(cuid())
   monitorId   String
   title       String
   description String?
-  severity    String
-  status      String   @default("open")
-  createdAt   DateTime @default(now())
+  severity    String           @default("critical") // critical | major | minor | maintenance
+  status      String           @default("open") // open | resolved
+  auto        Boolean          @default(false) // created automatically by the checker
+  createdAt   DateTime         @default(now())
   resolvedAt  DateTime?
-  monitor     Monitor  @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  monitor     Monitor          @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  updates     IncidentUpdate[]
+
+  @@index([monitorId, status])
+}
+
+model IncidentUpdate {
+  id         String   @id @default(cuid())
+  incidentId String
+  message    String
+  status     String // open | resolved | acknowledged
+  createdAt  DateTime @default(now())
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+}
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  orgId       String
+  org         Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name        String
+  prefix      String // human-readable prefix shown in the UI, e.g. ws_ab12cd34
+  hash        String    @unique // sha256 hash of the full key; the plaintext is never stored
+  lastUsedAt  DateTime?
+  createdById String?
+  createdBy   User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
+}
+
+model AlertChannel {
+  id        String   @id @default(cuid())
+  orgId     String
+  org       Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name      String
+  type      String // email | webhook
+  target    String // email address or webhook URL
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AlertDelivery {
+  id        String   @id @default(cuid())
+  orgId     String
+  org       Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  channel   String // email | webhook
+  target    String
+  event     String // incident_open | incident_resolved
+  success   Boolean
+  error     String?
+  createdAt DateTime @default(now())
+
+  @@index([orgId, createdAt])
+}
+
+model StatusPage {
+  id          String   @id @default(cuid())
+  orgId       String   @unique
+  org         Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  slug        String   @unique
+  title       String
+  description String?
+  logoUrl     String?
+  accentColor String   @default("#3b82f6")
+  isPublic    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model VerificationToken {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique
+  type      String // email_verify | password_reset
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([email, type])
 }

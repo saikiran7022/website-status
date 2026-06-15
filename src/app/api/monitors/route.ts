@@ -1,64 +1,74 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { prisma } from '@/lib/db';
-import { getAuthUser, verifyToken } from '@/lib/auth';
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
+import { requireAuth } from "@/lib/api";
+import { getPlan } from "@/lib/plans";
 
-async function getAuthenticatedUser(req: NextRequest) {
-  // Try Bearer token first (API clients)
-  const authHeader = req.headers.get('authorization');
-  if (authHeader) {
-    const token = authHeader.replace('Bearer ', '').replace('bearer ', '');
-    const payload = verifyToken(token);
-    if (payload) {
-      const user = await prisma.user.findUnique({ where: { id: payload.userId }, include: { org: true } });
-      return user ? { ...user, role: payload.role, orgId: payload.orgId } : null;
-    }
-  }
-
-  // Try cookie (frontend)
-  try {
-    const cookieStore = await cookies();
-    const session = cookieStore.get('ws_session');
-    if (session) {
-      const payload = verifyToken(session.value);
-      if (payload) {
-        const user = await prisma.user.findUnique({ where: { id: payload.userId }, include: { org: true } });
-        return user ? { ...user, role: payload.role, orgId: payload.orgId } : null;
-      }
-    }
-  } catch {
-    // cookies() not available in some contexts
-  }
-
-  return null;
-}
+export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const user = await getAuthenticatedUser(req);
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const orgId = (user as any).orgId;
-  if (!orgId) return NextResponse.json({ error: 'No organization' }, { status: 400 });
+  const auth = await requireAuth(req);
+  if ("error" in auth) return auth.error;
 
   const monitors = await prisma.monitor.findMany({
-    where: { orgId },
-    include: { _count: { select: { checkResults: true, incidents: true } } },
-    orderBy: { createdAt: 'desc' },
+    where: { orgId: auth.ctx.orgId },
+    include: {
+      _count: { select: { checkResults: true, incidents: true } },
+      checkResults: { orderBy: { timestamp: "desc" }, take: 1 },
+    },
+    orderBy: { createdAt: "desc" },
   });
   return NextResponse.json(monitors);
 }
 
 export async function POST(req: NextRequest) {
-  const user = await getAuthenticatedUser(req);
-  console.log('[monitors POST] user:', user ? { id: user.id, role: (user as any).role, orgId: (user as any).orgId } : 'null');
-  if (!user || (user as any).role !== 'admin') return NextResponse.json({ error: 'Admin required' }, { status: 403 });
+  const auth = await requireAuth(req, { roles: ["admin", "editor"] });
+  if ("error" in auth) return auth.error;
+  const { orgId } = auth.ctx;
 
-  const orgId = (user as any).orgId;
-  if (!orgId) return NextResponse.json({ error: 'No organization' }, { status: 400 });
+  const body = await req.json().catch(() => null);
+  if (!body?.name || !body?.url) {
+    return NextResponse.json({ error: "Name and URL are required" }, { status: 400 });
+  }
 
-  const { name, url, interval } = await req.json();
-  const monitor = await prisma.monitor.create({
-    data: { name, url, orgId, interval: interval || 5 },
-  });
-  return NextResponse.json(monitor, { status: 201 });
+  const org = await prisma.org.findUnique({ where: { id: orgId } });
+  const plan = getPlan(org?.plan);
+
+  const count = await prisma.monitor.count({ where: { orgId } });
+  if (plan.maxMonitors != null && count >= plan.maxMonitors) {
+    return NextResponse.json(
+      { error: `Your ${plan.name} plan allows up to ${plan.maxMonitors} monitors. Upgrade to add more.` },
+      { status: 403 }
+    );
+  }
+
+  let interval = Number(body.interval) || 5;
+  if (interval < plan.minInterval) interval = plan.minInterval;
+
+  const url = String(body.url).trim();
+  const normalizedUrl = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+
+  try {
+    const monitor = await prisma.monitor.create({
+      data: {
+        orgId,
+        name: String(body.name).trim(),
+        url: normalizedUrl,
+        method: typeof body.method === "string" ? body.method.toUpperCase() : "GET",
+        interval,
+        timeout: Number(body.timeout) || 30000,
+        expectedStatus: body.expectedStatus ? Number(body.expectedStatus) : null,
+        keyword: body.keyword?.trim() || null,
+        headers: body.headers?.trim() || null,
+        body: body.body?.trim() || null,
+        isActive: body.enabled ?? body.isActive ?? true,
+      },
+    });
+    return NextResponse.json(monitor, { status: 201 });
+  } catch (err: any) {
+    if (err?.code === "P2002") {
+      return NextResponse.json({ error: "A monitor for this URL already exists" }, { status: 409 });
+    }
+    console.error("[monitors POST]", err);
+    return NextResponse.json({ error: "Failed to create monitor" }, { status: 500 });
+  }
 }

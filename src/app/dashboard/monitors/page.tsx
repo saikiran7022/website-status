@@ -27,9 +27,9 @@ interface Monitor {
   checkResults?: Array<{ status: string; responseTime: number }>;
 }
 
-function formatInterval(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  return `${seconds / 60}m`;
+function formatInterval(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`;
+  return `${minutes / 60}h`;
 }
 
 export default function MonitorsPage() {

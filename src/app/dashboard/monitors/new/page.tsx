@@ -8,53 +8,127 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Loader2, PlayCircle } from "lucide-react";
 import { toast } from "sonner";
+
+interface FormState {
+  name: string;
+  url: string;
+  method: string;
+  interval: number; // minutes
+  timeout: number; // ms
+  expectedStatus: string;
+  keyword: string;
+  headers: string;
+  body: string;
+  enabled: boolean;
+}
 
 export default function NewMonitorPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [formData, setFormData] = useState({
+  const [testing, setTesting] = useState(false);
+  const [form, setForm] = useState<FormState>({
     name: "",
     url: "",
-    type: "https",
     method: "GET",
-    interval: 300,
+    interval: 5,
     timeout: 30000,
-    expectedStatusCode: 200,
+    expectedStatus: "",
     keyword: "",
     headers: "",
     body: "",
     enabled: true,
   });
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
+    setForm((f) => ({ ...f, [key]: value }));
+
+  function payload() {
+    return {
+      name: form.name,
+      url: form.url,
+      method: form.method,
+      interval: form.interval,
+      timeout: form.timeout,
+      expectedStatus: form.expectedStatus ? Number(form.expectedStatus) : undefined,
+      keyword: form.keyword || undefined,
+      headers: form.headers || undefined,
+      body: form.body || undefined,
+      enabled: form.enabled,
+    };
+  }
+
+  async function handleTest() {
+    if (!form.url) {
+      toast.error("Enter a URL to test");
+      return;
+    }
+    if (form.headers) {
+      try {
+        JSON.parse(form.headers);
+      } catch {
+        toast.error("Custom headers must be valid JSON");
+        return;
+      }
+    }
+    setTesting(true);
+    try {
+      const res = await fetch("/api/monitors/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload()),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Test failed");
+      } else if (data.status === "up") {
+        toast.success(`Up — HTTP ${data.statusCode} in ${data.responseTime}ms`);
+      } else if (data.status === "degraded") {
+        toast.warning(`Degraded — HTTP ${data.statusCode} in ${data.responseTime}ms`);
+      } else {
+        toast.error(`Down — ${data.error || "check failed"}`);
+      }
+    } catch {
+      toast.error("Test request failed");
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (form.headers) {
+      try {
+        JSON.parse(form.headers);
+      } catch {
+        toast.error("Custom headers must be valid JSON");
+        return;
+      }
+    }
     setLoading(true);
     try {
-      const headersObj = formData.headers ? JSON.parse(formData.headers) : undefined;
       const res = await fetch("/api/monitors", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: formData.name,
-          url: formData.url,
-          interval: Math.floor(formData.interval / 60), // convert seconds to minutes for DB
-        }),
+        body: JSON.stringify(payload()),
       });
       const data = await res.json();
       if (res.ok && data.id) {
-        toast.success("Monitor created successfully");
+        toast.success("Monitor created");
         router.push(`/dashboard/monitors/${data.id}`);
+        router.refresh();
       } else {
         toast.error(data.error || "Failed to create monitor");
       }
-    } catch (err) {
+    } catch {
       toast.error("Failed to create monitor");
     } finally {
       setLoading(false);
     }
-  };
+  }
+
+  const isHttp = form.method !== "HEAD";
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -78,90 +152,80 @@ export default function NewMonitorPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="name">Monitor Name</Label>
-                <Input id="name" placeholder="My Website" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required />
+                <Input id="name" placeholder="My Website" value={form.name} onChange={(e) => set("name", e.target.value)} required />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="type">Monitor Type</Label>
-                <Select value={formData.type} onValueChange={(v) => setFormData({ ...formData, type: v })}>
+                <Label htmlFor="method">HTTP Method</Label>
+                <Select value={form.method} onValueChange={(v) => set("method", v)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="https">HTTPS</SelectItem>
-                    <SelectItem value="http">HTTP</SelectItem>
-                    <SelectItem value="tcp">TCP</SelectItem>
-                    <SelectItem value="ping">Ping</SelectItem>
-                    <SelectItem value="dns">DNS</SelectItem>
+                    {["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"].map((m) => (
+                      <SelectItem key={m} value={m}>{m}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="url">URL / Host</Label>
-              <Input id="url" placeholder="https://example.com" value={formData.url} onChange={(e) => setFormData({ ...formData, url: e.target.value })} required />
+              <Label htmlFor="url">URL</Label>
+              <Input id="url" placeholder="https://example.com" value={form.url} onChange={(e) => set("url", e.target.value)} required />
             </div>
-
-            {(formData.type === "http" || formData.type === "https") && (
-              <>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="method">HTTP Method</Label>
-                    <Select value={formData.method} onValueChange={(v) => setFormData({ ...formData, method: v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"].map((m) => (
-                          <SelectItem key={m} value={m}>{m}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="expectedStatusCode">Expected Status Code</Label>
-                    <Input id="expectedStatusCode" type="number" value={formData.expectedStatusCode} onChange={(e) => setFormData({ ...formData, expectedStatusCode: parseInt(e.target.value) })} />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="keyword">Keyword Match (optional)</Label>
-                  <Input id="keyword" placeholder="Required text in response" value={formData.keyword} onChange={(e) => setFormData({ ...formData, keyword: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="headers">Custom Headers (JSON)</Label>
-                  <Textarea id="headers" placeholder='{"Authorization": "Bearer token"}' value={formData.headers} onChange={(e) => setFormData({ ...formData, headers: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="body">Request Body</Label>
-                  <Textarea id="body" placeholder="Request body for POST/PUT" value={formData.body} onChange={(e) => setFormData({ ...formData, body: e.target.value })} />
-                </div>
-              </>
-            )}
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="interval">Check Interval (seconds)</Label>
-                <Select value={String(formData.interval)} onValueChange={(v) => setFormData({ ...formData, interval: parseInt(v) })}>
+                <Label htmlFor="interval">Check Interval</Label>
+                <Select value={String(form.interval)} onValueChange={(v) => set("interval", parseInt(v))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="30">30 seconds</SelectItem>
-                    <SelectItem value="60">1 minute</SelectItem>
-                    <SelectItem value="300">5 minutes</SelectItem>
-                    <SelectItem value="600">10 minutes</SelectItem>
-                    <SelectItem value="900">15 minutes</SelectItem>
-                    <SelectItem value="1800">30 minutes</SelectItem>
+                    <SelectItem value="1">Every 1 minute</SelectItem>
+                    <SelectItem value="5">Every 5 minutes</SelectItem>
+                    <SelectItem value="10">Every 10 minutes</SelectItem>
+                    <SelectItem value="15">Every 15 minutes</SelectItem>
+                    <SelectItem value="30">Every 30 minutes</SelectItem>
+                    <SelectItem value="60">Every hour</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="timeout">Timeout (ms)</Label>
-                <Input id="timeout" type="number" value={formData.timeout} onChange={(e) => setFormData({ ...formData, timeout: parseInt(e.target.value) })} />
+                <Input id="timeout" type="number" value={form.timeout} onChange={(e) => set("timeout", parseInt(e.target.value) || 30000)} />
               </div>
             </div>
 
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="expectedStatus">Expected Status Code (optional)</Label>
+                <Input id="expectedStatus" type="number" placeholder="Any 2xx/3xx" value={form.expectedStatus} onChange={(e) => set("expectedStatus", e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="keyword">Keyword Match (optional)</Label>
+                <Input id="keyword" placeholder="Text expected in response" value={form.keyword} onChange={(e) => set("keyword", e.target.value)} />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="headers">Custom Headers (JSON, optional)</Label>
+              <Textarea id="headers" placeholder='{"Authorization": "Bearer token"}' value={form.headers} onChange={(e) => set("headers", e.target.value)} />
+            </div>
+
+            {isHttp && form.method !== "GET" && (
+              <div className="space-y-2">
+                <Label htmlFor="body">Request Body (optional)</Label>
+                <Textarea id="body" placeholder="Request body for POST/PUT/PATCH" value={form.body} onChange={(e) => set("body", e.target.value)} />
+              </div>
+            )}
+
             <div className="flex items-center gap-2">
-              <Switch id="enabled" checked={formData.enabled} onCheckedChange={(v) => setFormData({ ...formData, enabled: v })} />
+              <Switch id="enabled" checked={form.enabled} onCheckedChange={(v) => set("enabled", v)} />
               <Label htmlFor="enabled">Enable monitor immediately</Label>
             </div>
 
             <div className="flex gap-2 justify-end">
-              <Button type="button" variant="outline" onClick={() => router.back()}>Cancel</Button>
+              <Button type="button" variant="outline" onClick={handleTest} disabled={testing} className="gap-2">
+                {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
+                Test
+              </Button>
               <Button type="submit" disabled={loading}>
                 {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 Create Monitor
