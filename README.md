@@ -64,6 +64,19 @@ All configuration is via environment variables — see `.env.example`. Highlight
 | `RESEND_API_KEY`, `EMAIL_FROM` | — | Enable email; if unset, email is skipped gracefully |
 | `GITHUB_CLIENT_ID/SECRET`, `NEXT_PUBLIC_GITHUB_CLIENT_ID` | — | Enable GitHub OAuth |
 
+## Deployment (Vercel + Supabase)
+
+1. **Database — Supabase:** create a project, then from **Project Settings → Database** copy two connection strings:
+   - the **pooled** URI (port `6543`) → add `?pgbouncer=true` and use it as `DATABASE_URL`
+   - the **direct** URI (port `5432`) → use it as `DIRECT_URL`
+2. **App — Vercel:** import the GitHub repo. Vercel uses `vercel.json`, whose build command runs `prisma migrate deploy` to create the schema on Supabase during the first deploy. Set these env vars in Vercel:
+   - `DATABASE_URL`, `DIRECT_URL` (from Supabase)
+   - `JWT_SECRET` (`openssl rand -hex 32`)
+   - `NEXT_PUBLIC_APP_URL` (your Vercel URL)
+   - `CRON_SECRET` (`openssl rand -hex 32`)
+   - optional: `RESEND_API_KEY` + `EMAIL_FROM`, GitHub OAuth keys
+3. **Checks:** Vercel's free (Hobby) cron only runs once per day, so continuous checks are driven by the included GitHub Actions workflow. In **GitHub → Settings → Secrets and variables → Actions**, add variable `APP_URL` (your Vercel URL) and secret `CRON_SECRET` (same value as Vercel). On **Vercel Pro** you can instead add a `crons` entry to `vercel.json` (see the note in that file) and drop the workflow.
+
 ## Deployment (Render)
 
 The `render.yaml` provisions three resources: the **Next.js web service**, a **background worker** (continuous checks), and a **PostgreSQL database**. `JWT_SECRET` and `CRON_SECRET` are generated automatically; set the `sync: false` secrets (email/OAuth/admin) in the dashboard.
