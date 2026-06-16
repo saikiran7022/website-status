@@ -1,6 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "buildCommand": "prisma generate && prisma migrate deploy && next build",
-  "comment_crons": "Vercel native cron is daily-only on the free Hobby plan, which is too coarse for uptime monitoring. The every-5-minute GitHub Actions workflow (.github/workflows/cron.yml) drives checks on free. On Vercel Pro you can replace it by adding: \"crons\": [{ \"path\": \"/api/cron\", \"schedule\": \"*/5 * * * *\" }] — Vercel will auto-send Authorization: Bearer $CRON_SECRET."
+  "buildCommand": "prisma generate && next build"
 }
